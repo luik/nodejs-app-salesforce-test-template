@@ -82,12 +82,26 @@
     let articleData;
 
     function updateArticleMetadata(articleId){
-
+        let jstree = $('#jstree');
+        $.post('http://localhost:3000/metadata/' + articleId,
+            {
+                IsVisibleInPkb: $('#IsVisibleInPkb').prop("checked"),
+                IsVisibleInCsp: $('#IsVisibleInCsp').prop("checked"),
+                IsVisibleInPrm: $('#IsVisibleInPrm').prop("checked"),
+                RecordTypeId: $('#article-record-type').val(),
+                Categories: jstree.jstree(true).get_top_selected(false),
+                CategoryGroup: jstree.jstree(true).get_node('#').children[0]
+        },
+            (data) => {
+            console.log(data);
+        });
     }
 
     function getArticleMetadata(articleId){
         $.get('http://localhost:3000/metadata/' + articleId, (data) => {
             articleData = data;
+
+            $('#jstree').jstree(true).deselect_all();
 
             let articleMetadata = articleData.metadata.records[0];
             $('#IsVisibleInPkb').prop("checked", articleMetadata.IsVisibleInPkb);

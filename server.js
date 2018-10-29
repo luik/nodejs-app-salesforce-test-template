@@ -26,7 +26,7 @@ app.get('/categories', async (req, res) => {
                 'Authorization': 'OAuth ' + authInfo.result.accessToken
             }
         };
-        let sfCategories = await request.get(options);
+        let sfCategories = await request(options);
         res.send(JSON.parse(sfCategories));
     } catch (error) {
         res.sendStatus(500);
@@ -44,7 +44,7 @@ app.get('/record-types', async (req, res) => {
             }
         };
 
-        let sfRecordTypes = await request.get(options);
+        let sfRecordTypes = await request(options);
         res.send(JSON.parse(sfRecordTypes));
     } catch (error) {
         res.sendStatus(500);
@@ -63,7 +63,7 @@ app.get('/metadata/:articleId', async (req, res) => {
                 'Authorization': 'OAuth ' + authInfo.result.accessToken
             }
         };
-        let sfArticleMetadata = await request.get(getArticleMetadataOptions);
+        let sfArticleMetadata = await request(getArticleMetadataOptions);
 
         let getArticleCategoriesMetadataOptions = {
             url: authInfo.result.instanceUrl +
@@ -72,7 +72,7 @@ app.get('/metadata/:articleId', async (req, res) => {
                 'Authorization': 'OAuth ' + authInfo.result.accessToken
             }
         };
-        let sfArticleCategoriesMetadata = await request.get(getArticleCategoriesMetadataOptions);
+        let sfArticleCategoriesMetadata = await request( getArticleCategoriesMetadataOptions );
 
         res.send({metadata: JSON.parse(sfArticleMetadata), categoriesMetadata: JSON.parse(sfArticleCategoriesMetadata)});
     } catch (error) {
@@ -81,3 +81,113 @@ app.get('/metadata/:articleId', async (req, res) => {
     }
 });
 
+app.post('/metadata/:articleId', async (req, res) => {
+    try {
+        let requestBody = req.body;
+        let articleId = req.params.articleId;
+
+        let updateArticleMetadataOptions = {
+            url: authInfo.result.instanceUrl +
+                "/services/data/" + apiVersion + `/sobjects/Knowledge__kav/${articleId}`,
+            headers: {
+                'Authorization': 'OAuth ' + authInfo.result.accessToken
+            },
+            method: 'PATCH',
+            json: true,
+            body: {
+                IsVisibleInPkb: requestBody.IsVisibleInPkb,
+                IsVisibleInCsp: requestBody.IsVisibleInCsp,
+                IsVisibleInPrm: requestBody.IsVisibleInPrm,
+                RecordTypeId: requestBody.RecordTypeId
+            }
+        };
+
+        let updateResult = await request( updateArticleMetadataOptions );
+
+        let getArticleCategoriesMetadataOptions = {
+            url: authInfo.result.instanceUrl +
+                "/services/data/" + apiVersion + `/query/?q=SELECT+Id,ParentId,DataCategoryGroupName,DataCategoryName+FROM+Knowledge__DataCategorySelection+WHERE+ParentId='${articleId}'`,
+            headers: {
+                'Authorization': 'OAuth ' + authInfo.result.accessToken
+            }
+        };
+        let sfArticleCategoriesMetadata = await request( getArticleCategoriesMetadataOptions );
+
+        let categoriesToAdd = [];
+        let categoriesToDelete = [];
+        let categories = [];
+
+        let requestCategories = requestBody['Categories[]'];
+        console.log('Request Categories ', requestCategories);
+
+        JSON.parse(sfArticleCategoriesMetadata).records.forEach(
+            articleCategoryMetadata => {
+                categories.push(articleCategoryMetadata.DataCategoryName);
+
+                if(requestCategories.indexOf( articleCategoryMetadata.DataCategoryName ) < 0 &&
+                    requestBody.CategoryGroup === articleCategoryMetadata.DataCategoryGroupName
+                ){
+                    categoriesToDelete.push(articleCategoryMetadata);
+                }
+            }
+        );
+
+        requestCategories.forEach(requestCategoryName => {
+           if(categories.indexOf(requestCategoryName) < 0){
+               categoriesToAdd.push({
+                   attributes: {
+                       type: 'Knowledge__DataCategorySelection'
+                   },
+                   ParentId: articleId,
+                   DataCategoryGroupName: requestBody.CategoryGroup,
+                   DataCategoryName: requestCategoryName
+               });
+           }
+        });
+
+        console.log('To Add: ', categoriesToAdd);
+        console.log('To Remove', categoriesToDelete);
+
+        let deleteResult = {};
+        let createResult = {};
+
+        if(categoriesToDelete.length > 0){
+            let deleteOptions = {
+                url: authInfo.result.instanceUrl +
+                    "/services/data/" + apiVersion + '/composite/sobjects?ids=' +
+                    categoriesToDelete.map(categoryToDelete => categoryToDelete.Id).join(',') ,
+                headers: {
+                    'Authorization': 'OAuth ' + authInfo.result.accessToken
+                },
+                method: 'DELETE'
+            };
+            deleteResult = await request(deleteOptions);
+        }
+        if(categoriesToAdd.length > 0){
+            let createOptions = {
+                url: authInfo.result.instanceUrl +
+                    "/services/data/" + apiVersion + '/composite/sobjects',
+                headers: {
+                    'Authorization': 'OAuth ' + authInfo.result.accessToken
+                },
+                method: 'POST',
+                json: true,
+                body: {
+                    allOrNone: false,
+                    records: categoriesToAdd
+                }
+            };
+            createResult = await request(createOptions);
+        }
+
+        res.send({
+            updateResult: updateResult,
+            deleteResult: deleteResult,
+            createResult: createResult
+        });
+    } catch (error){
+        res.sendStatus(500);
+        console.error(error);
+    }
+
+});
