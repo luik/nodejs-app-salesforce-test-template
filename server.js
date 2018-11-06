@@ -118,6 +118,10 @@ app.post('/metadata/:articleId', async (req, res) => {
         let categories = [];
 
         let requestCategories = requestBody['Categories[]'];
+        if(typeof requestCategories === 'string'){
+            requestCategories = [requestCategories];
+        }
+
         console.log('Request Categories ', requestCategories);
 
         JSON.parse(sfArticleCategoriesMetadata).records.forEach(
