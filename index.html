@@ -19,8 +19,11 @@
         </div>
     </form>
 
+    <label for="KnowledgeArticleId">Knowledge Article Id</label>
+    <input type="text" disabled id="KnowledgeArticleId"/>
+
     <fieldset>
-        <legend>Channels</legend>
+        <h5>Channels</h5>
 
         <div>
             <input type="checkbox" id="IsVisibleInApp" checked disabled/>
@@ -40,7 +43,7 @@
         </div>
     </fieldset>
 
-    <label for="article-record-type">Article Record Type:</label>
+    <label for="article-record-type">Article Record Type </label>
     <select id="article-record-type">
     </select>
 
@@ -56,7 +59,7 @@
         getCategories();
         getRecordTypes();
 
-        $("#article-id").val('ka0Z0000000Ab1SIAS');
+        $("#article-id").val('ka0Z0000000AbVFIA0');
 
         $("#get-article-metadata").click(
             (event) => {
@@ -82,19 +85,52 @@
     let articleData;
 
     function updateArticleMetadata(articleId){
-        let jstree = $('#jstree');
-        $.post('http://localhost:3000/metadata/' + articleId,
+
+        let channels = [];
+        if( $('#IsVisibleInPkb').prop("checked") ){
+            channels.push('IsVisibleInPkb');
+        }
+        if( $('#IsVisibleInCsp').prop("checked") ){
+            channels.push('IsVisibleInCsp');
+        }
+        if( $('#IsVisibleInPrm').prop("checked") ){
+            channels.push('IsVisibleInPrm');
+        }
+        let selectedRecordType = $('#article-record-type :selected');
+
+        let categories = $('#jstree').jstree(true).get_top_selected(true).map(
+            function(selectedCategory) {
+                let groupIndex = selectedCategory.parents.length - 2;
+                return {
+                    categoryGroup: selectedCategory.parents[groupIndex],
+                    category: selectedCategory.id
+                }
+            }
+        );
+
+        fetch(
+            'http://localhost:3000/metadata/' + articleId,
             {
-                IsVisibleInPkb: $('#IsVisibleInPkb').prop("checked"),
-                IsVisibleInCsp: $('#IsVisibleInCsp').prop("checked"),
-                IsVisibleInPrm: $('#IsVisibleInPrm').prop("checked"),
-                RecordTypeId: $('#article-record-type').val(),
-                Categories: jstree.jstree(true).get_top_selected(false),
-                CategoryGroup: jstree.jstree(true).get_node('#').children[0]
-        },
-            (data) => {
-            console.log(data);
-        });
+                headers: {
+                    'content-type': 'application/json'
+                },
+                method: 'POST',
+                body: JSON.stringify({
+                    channels: channels,
+                    recordType: {
+                        id: selectedRecordType.val(),
+                        name: selectedRecordType.text()
+                    },
+                    categories: categories
+                })
+            })
+            .then( (data) => {
+                console.log(data);
+            })
+            .catch( (error) => {
+               console.error(error);
+            });
+
     }
 
     function getArticleMetadata(articleId){
@@ -104,6 +140,9 @@
             $('#jstree').jstree(true).deselect_all();
 
             let articleMetadata = articleData.metadata.records[0];
+
+            $('#KnowledgeArticleId').val(articleMetadata.KnowledgeArticleId);
+
             $('#IsVisibleInPkb').prop("checked", articleMetadata.IsVisibleInPkb);
             $('#IsVisibleInCsp').prop("checked", articleMetadata.IsVisibleInCsp);
             $('#IsVisibleInPrm').prop("checked", articleMetadata.IsVisibleInPrm);

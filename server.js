@@ -11,7 +11,6 @@ var authInfo = JSON.parse(fs.readFileSync('authInfo.json', 'utf8'));
 
 app.use(express.static(__dirname));
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
 
 var server = http.listen(3000, () => {
     console.log('Server is listening on port', server.address().port)
@@ -58,7 +57,10 @@ app.get('/metadata/:articleId', async (req, res) => {
 
         let getArticleMetadataOptions = {
             url: authInfo.result.instanceUrl +
-                "/services/data/" + apiVersion + `/query/?q=SELECT+Id,IsVisibleInApp,IsVisibleInPkb,IsVisibleInCsp,IsVisibleInPrm,RecordTypeId+FROM+Knowledge__kav+WHERE+Id='${articleId}'`,
+                "/services/data/" + apiVersion +
+                `/query/?q=SELECT+Id,IsVisibleInApp,IsVisibleInPkb,IsVisibleInCsp,IsVisibleInPrm
+                ,RecordTypeId,KnowledgeArticleId
+                +FROM+Knowledge__kav+WHERE+Id='${articleId}'`,
             headers: {
                 'Authorization': 'OAuth ' + authInfo.result.accessToken
             }
@@ -85,6 +87,7 @@ app.post('/metadata/:articleId', async (req, res) => {
     try {
         let requestBody = req.body;
         let articleId = req.params.articleId;
+        let channels = requestBody.channels;
 
         let updateArticleMetadataOptions = {
             url: authInfo.result.instanceUrl +
@@ -95,10 +98,10 @@ app.post('/metadata/:articleId', async (req, res) => {
             method: 'PATCH',
             json: true,
             body: {
-                IsVisibleInPkb: requestBody.IsVisibleInPkb,
-                IsVisibleInCsp: requestBody.IsVisibleInCsp,
-                IsVisibleInPrm: requestBody.IsVisibleInPrm,
-                RecordTypeId: requestBody.RecordTypeId
+                IsVisibleInPkb: channels.indexOf("IsVisibleInPkb") >= 0,
+                IsVisibleInCsp: channels.indexOf("IsVisibleInCsp") >= 0,
+                IsVisibleInPrm: channels.indexOf("IsVisibleInPrm") >= 0,
+                RecordTypeId: requestBody.recordType.id
             }
         };
 
@@ -117,34 +120,32 @@ app.post('/metadata/:articleId', async (req, res) => {
         let categoriesToDelete = [];
         let categories = [];
 
-        let requestCategories = requestBody['Categories[]'];
-        if(typeof requestCategories === 'string'){
-            requestCategories = [requestCategories];
-        }
+        let requestCategories = requestBody.categories;
 
         console.log('Request Categories ', requestCategories);
 
         JSON.parse(sfArticleCategoriesMetadata).records.forEach(
             articleCategoryMetadata => {
-                categories.push(articleCategoryMetadata.DataCategoryName);
+                categories.push(articleCategoryMetadata);
 
-                if(requestCategories.indexOf( articleCategoryMetadata.DataCategoryName ) < 0 &&
-                    requestBody.CategoryGroup === articleCategoryMetadata.DataCategoryGroupName
+                if(requestCategories.map(function(category){return category.categoryGroup + ':' + category.category; })
+                        .indexOf( articleCategoryMetadata.DataCategoryGroupName + ':' + articleCategoryMetadata.DataCategoryName ) < 0
                 ){
                     categoriesToDelete.push(articleCategoryMetadata);
                 }
             }
         );
 
-        requestCategories.forEach(requestCategoryName => {
-           if(categories.indexOf(requestCategoryName) < 0){
+        requestCategories.forEach(requestCategory => {
+           if( categories.map(function(category){return category.DataCategoryGroupName + ':' + category.DataCategoryName; })
+               .indexOf(requestCategory.categoryGroup + ':' + requestCategory.category ) < 0){
                categoriesToAdd.push({
                    attributes: {
                        type: 'Knowledge__DataCategorySelection'
                    },
                    ParentId: articleId,
-                   DataCategoryGroupName: requestBody.CategoryGroup,
-                   DataCategoryName: requestCategoryName
+                   DataCategoryGroupName: requestCategory.categoryGroup,
+                   DataCategoryName: requestCategory.category
                });
            }
         });
@@ -194,4 +195,114 @@ app.post('/metadata/:articleId', async (req, res) => {
         console.error(error);
     }
 
+});
+
+app.get('/draft/:articleVersionId', async (req, res) => {
+    try {
+        let response = {};
+        let articleVersionId = req.params.articleVersionId;
+        console.log( 'articleVersionId', articleVersionId );
+
+        let getArticleVersionOptions = {
+            url: authInfo.result.instanceUrl +
+                "/services/data/" + apiVersion + "/query/?q=SELECT+Id,KnowledgeArticleId,PublishStatus,IsLatestVersion,VersionNumber" +
+                `+FROM+Knowledge__kav+WHERE+Id='${articleVersionId}'`,
+            headers: {
+                'Authorization': 'OAuth ' + authInfo.result.accessToken
+            },
+            json: true,
+        };
+
+        response.articleVersion = await request(getArticleVersionOptions);
+        let articleId =  response.articleVersion.records[0].KnowledgeArticleId;
+
+        console.log( 'knowledgeArticleId', articleId );
+
+        ////Getting Article data
+        let getArticleOptions = {
+            url: authInfo.result.instanceUrl +
+                "/services/data/" + apiVersion + `/knowledgeManagement/articles/${articleId}`,
+            headers: {
+                'Authorization': 'OAuth ' + authInfo.result.accessToken
+            },
+            json: true,
+        };
+
+        response.article = await request(getArticleOptions);
+
+        let draftVersionId = response.article.draftArticleMasterVersionId;
+
+        if( draftVersionId === ""){
+            let getDraftOptions = {
+                url: authInfo.result.instanceUrl +
+                    "/services/data/" + apiVersion + "/knowledgeManagement/articleVersions/masterVersions",
+                headers: {
+                    'Authorization': 'OAuth ' + authInfo.result.accessToken
+                },
+                method: 'POST',
+                json: true,
+                body: {
+                    articleId: articleId
+                }
+            };
+            response.createdDraft = await request(getDraftOptions);
+            draftVersionId = response.createdDraft.id;
+        }
+
+        console.log('Draft Version Id', draftVersionId);
+        res.send( response );
+
+        //// History entries always returns 0
+        // let getLastHistoryEntryOptions = {
+        //     url: authInfo.result.instanceUrl +
+        //         "/services/data/" + apiVersion + "/query/?q=SELECT+Id,VersionNumber,VersionId" +
+        //         `+FROM+KnowledgeArticleVersionHistory` +
+        //         "+AND+IsDeleted=false+ORDER+BY+VersionNumber+DESC+LIMIT+1"
+        //     ,
+        //     headers: {
+        //         'Authorization': 'OAuth ' + authInfo.result.accessToken
+        //     }
+        // };
+        // let lastHistoryEntryResponse = await request(getLastHistoryEntryOptions);
+        // console.log('lastHistoryEntryResponse', lastHistoryEntryResponse);
+        // res.send(lastHistoryEntryResponse);
+
+        ////
+        // let getLastArticleVersionOptions = {
+        //     url: authInfo.result.instanceUrl +
+        //         "/services/data/" + apiVersion + "/query/?q=SELECT+Id,KnowledgeArticleId,PublishStatus,IsLatestVersion,VersionNumber" +
+        //         `+FROM+Knowledge__kav+WHERE+KnowledgeArticleId='${articleId}'`+
+        //         "+AND+PublishStatus='Online'+AND+IsDeleted=false+ORDER+BY+VersionNumber+DESC+LIMIT+1"
+        //     ,
+        //     headers: {
+        //         'Authorization': 'OAuth ' + authInfo.result.accessToken
+        //     }
+        // };
+        // let lastArticleVersionResponse = await request(getLastArticleVersionOptions);
+        // res.send( JSON.parse(lastArticleVersionResponse) );
+
+
+    } catch (error) {
+        res.sendStatus(500);
+        console.error(error);
+    }
+});
+
+app.get('/describe/:sObject', async (req, res) => {
+    try {
+        let sObject = req.params.sObject;
+
+        let getSObject = {
+            url: authInfo.result.instanceUrl +
+                "/services/data/" + apiVersion + `/sobjects/${sObject}/describe`,
+            headers: {
+                'Authorization': 'OAuth ' + authInfo.result.accessToken
+            }
+        };
+        let sObjectResponse = await request(getSObject);
+        res.send( JSON.parse(sObjectResponse) );
+    } catch (error) {
+        res.sendStatus(500);
+        console.error(error);
+    }
 });
