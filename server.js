@@ -297,12 +297,35 @@ app.get('/describe/:sObject', async (req, res) => {
                 "/services/data/" + apiVersion + `/sobjects/${sObject}/describe`,
             headers: {
                 'Authorization': 'OAuth ' + authInfo.result.accessToken
-            }
+            },
+            json: true
         };
         let sObjectResponse = await request(getSObject);
-        res.send( JSON.parse(sObjectResponse) );
+        res.send( sObjectResponse );
     } catch (error) {
         res.sendStatus(500);
         console.error(error);
     }
+});
+
+app.get('/sobjects/:articleId', async (req, res) => {
+    try{
+        let articleId = req.params.articleId;
+
+        let getArticleKavOptions = {
+            url: authInfo.result.instanceUrl +
+                "/services/data/" + apiVersion + `/sobjects/Knowledge__kav/${articleId}`,
+            headers: {
+                'Authorization': 'OAuth ' + authInfo.result.accessToken
+            },
+            json: true
+        };
+
+        let articleKavResult = await request( getArticleKavOptions );
+        res.send(articleKavResult);
+    } catch (error) {
+        res.sendStatus(500);
+        console.error(error);
+    }
+
 });
