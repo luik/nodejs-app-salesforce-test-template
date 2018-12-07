@@ -12,7 +12,7 @@ var authInfo = JSON.parse(fs.readFileSync('authInfo.json', 'utf8'));
 app.use(express.static(__dirname));
 app.use(bodyParser.json());
 
-var server = http.listen(3000, () => {
+var server = http.listen(3010, () => {
     console.log('Server is listening on port', server.address().port)
 });
 
